@@ -147,3 +147,35 @@ test("buildRepairMessages contains the exact validation error and the correction
   assert.match(all, /category: Invalid enum value/);
   assert.match(all, /Return only corrected JSON matching the schema\./);
 });
+
+// --- Stage 4: timeout, retry policy, cost logging, kill switch ---
+
+import { shouldRetry } from "../src/llm/retry.js";
+
+test("shouldRetry is true for 429, 5xx, and timeouts", () => {
+  assert.equal(shouldRetry({ status: 429 }), true);
+  assert.equal(shouldRetry({ status: 503 }), true);
+  assert.equal(shouldRetry({ status: 500 }), true);
+  assert.equal(shouldRetry({ name: "APIConnectionTimeoutError" }), true);
+  assert.equal(shouldRetry({ code: "ETIMEDOUT" }), true);
+});
+
+test("shouldRetry is false for 400, 401, and 403", () => {
+  assert.equal(shouldRetry({ status: 400 }), false);
+  assert.equal(shouldRetry({ status: 401 }), false);
+  assert.equal(shouldRetry({ status: 403 }), false);
+});
+
+test("LLM_ENABLED=false returns 503 before anything else, even with LLM_STUB=1", async () => {
+  process.env.LLM_ENABLED = "false";
+  process.env.LLM_STUB = "1";
+  try {
+    await withServer(async (base) => {
+      const res = await post(base, { text: "My invoice is wrong." });
+      assert.equal(res.status, 503);
+    });
+  } finally {
+    delete process.env.LLM_ENABLED;
+    delete process.env.LLM_STUB;
+  }
+});

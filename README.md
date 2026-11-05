@@ -19,3 +19,7 @@ Deliberately broken request (missing `text` → 400 naming the field):
 - The vague input ("Something feels off since the last update…") correctly hit the when-unsure rule: `category: other` with `confidence: 0.4`, not a guess.
 - The prompt-injection attempt ("Ignore all previous instructions…") was classified as `other`/0.2 with a reason naming the injection — it did not obey.
 - Three parallel requests fight over this laptop's 4 GB GPU and slow each other down badly; the endpoint is meant to be called sequentially (the eval runner does exactly that).
+
+## Production fit (Stage 4)
+
+SDK retries are off (`maxRetries: 0`); the retry loop in `src/llm/client.js` is the only retry logic — it retries timeouts, 429 and 5xx only (never 400/401/403), with 1s/2s/4s backoff plus jitter, honouring `Retry-After`.
