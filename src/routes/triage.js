@@ -4,10 +4,18 @@ import { loadPrompt, callModel, PROMPT_VERSION } from "../llm/client.js";
 import { parseModelOutput } from "../llm/parse.js";
 import { buildRepairMessages } from "../llm/repair.js";
 import { appendQuarantine } from "../llm/log.js";
+import { isTimeout } from "../llm/retry.js";
 
 const router = Router();
 
 router.post("/triage", async (req, res) => {
+  // Kill switch first: zero model calls, and it beats stub mode. When the
+  // provider has an outage or the bill spikes, somebody who is not us can
+  // turn this off without a deploy.
+  if (process.env.LLM_ENABLED === "false") {
+    return res.status(503).json({ error: "llm disabled by kill switch (LLM_ENABLED=false)" });
+  }
+
   const parsed = InputSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -29,8 +37,7 @@ router.post("/triage", async (req, res) => {
   const user = JSON.stringify({ text: input.text });
 
   try {
-    const raw = await callModel({ system, user });
-    const first = parseModelOutput(raw);
+    const first = parseModelOutput((await callModel({ system, user })).text);
     if (first.ok) {
       return res.status(200).json(first.data);
     }
@@ -39,11 +46,12 @@ router.post("/triage", async (req, res) => {
     const repairMessages = buildRepairMessages({
       system,
       user,
-      broken: raw,
+      broken: first.raw,
       error: first.error,
     });
-    const raw2 = await callModel({ messages: repairMessages });
-    const second = parseModelOutput(raw2);
+    const second = parseModelOutput(
+      (await callModel({ messages: repairMessages, repaired: true })).text
+    );
     if (second.ok) {
       return res.status(200).json(second.data);
     }
@@ -55,17 +63,18 @@ router.post("/triage", async (req, res) => {
       input,
       promptVersion: PROMPT_VERSION,
       error: second.error,
-      rawOutput: raw2,
+      rawOutput: second.raw,
     });
     return res.status(422).json({
       error: "model output did not match the schema after one repair attempt",
       detail: second.error,
     });
   } catch (err) {
-    return res.status(500).json({
-      error: "model call failed",
-      detail: String(err?.message ?? err),
-    });
+    const detail = String(err?.message ?? err);
+    if (isTimeout(err)) {
+      return res.status(504).json({ error: "model call timed out", detail });
+    }
+    return res.status(502).json({ error: "model provider error", detail });
   }
 });
 
