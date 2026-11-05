@@ -179,3 +179,66 @@ test("LLM_ENABLED=false returns 503 before anything else, even with LLM_STUB=1",
     delete process.env.LLM_STUB;
   }
 });
+
+// --- Final review fixes ---
+
+test("parseModelOutput never echoes the raw model text in its error", () => {
+  const raw = '{"a": XXLEAK }';
+  const result = parseModelOutput(raw);
+  assert.equal(result.ok, false);
+  assert.ok(!result.error.includes("XXLEAK"), `error must not echo raw output: ${result.error}`);
+});
+
+test("shouldRetry never retries a 400 even when the message mentions a timeout", () => {
+  assert.equal(shouldRetry({ status: 400, message: "request timed out" }), false);
+  assert.equal(shouldRetry({ status: 401, message: "connect timed out" }), false);
+});
+
+test("POST /triage accepts text of exactly 2000 characters", async () => {
+  process.env.LLM_STUB = "1";
+  try {
+    await withServer(async (base) => {
+      const res = await post(base, { text: "a".repeat(2000) });
+      assert.equal(res.status, 200);
+    });
+  } finally {
+    delete process.env.LLM_STUB;
+  }
+});
+
+test("oversized request body returns 413, not 500", async () => {
+  await withServer(async (base) => {
+    const res = await fetch(`${base}/triage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "a".repeat(200000) }),
+    });
+    assert.equal(res.status, 413);
+  });
+});
+
+test("errorHandler logs unexpected errors before answering 500", async () => {
+  const { errorHandler } = await import("../src/app.js");
+  const logged = [];
+  const original = console.error;
+  console.error = (...args) => logged.push(args);
+  try {
+    const res = {
+      statusCode: null,
+      body: null,
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(body) {
+        this.body = body;
+        return this;
+      },
+    };
+    errorHandler(new Error("boom"), {}, res, () => {});
+    assert.equal(res.statusCode, 500);
+    assert.equal(logged.length, 1);
+  } finally {
+    console.error = original;
+  }
+});

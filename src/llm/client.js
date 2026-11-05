@@ -23,15 +23,15 @@ export function createClient() {
   return new OpenAI({
     baseURL: process.env.LLM_BASE_URL,
     apiKey: process.env.LLM_API_KEY,
-    // A real timeout: the SDK default is ten minutes. And the SDK must not
-    // retry on its own (maxRetries: 0) - the loop in callModel is the only
-    // retry logic in this codebase.
-    timeout: 30000,
+    // A real timeout (override with LLM_TIMEOUT_MS): the SDK default is ten
+    // minutes. And the SDK must not retry on its own (maxRetries: 0) - the
+    // loop in callModel is the only retry logic in this codebase.
+    timeout: Number(process.env.LLM_TIMEOUT_MS ?? 30000),
     maxRetries: 0,
   });
 }
 
-const MAX_RETRIES = 3; // waits of 1s, 2s, 4s between attempts
+const DEFAULT_MAX_RETRIES = 3; // waits of 1s, 2s, 4s between attempts
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -47,6 +47,7 @@ export async function callModel({ system, user, messages, repaired = false }) {
   ];
   const client = createClient();
   const model = process.env.LLM_MODEL;
+  const maxRetries = Number(process.env.LLM_MAX_RETRIES ?? DEFAULT_MAX_RETRIES);
   const started = Date.now();
 
   const log = (ok, usage) =>
@@ -62,7 +63,7 @@ export async function callModel({ system, user, messages, repaired = false }) {
     });
 
   let lastErr;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const res = await client.chat.completions.create({
         model,
@@ -82,7 +83,7 @@ export async function callModel({ system, user, messages, repaired = false }) {
       return { text: res.choices[0].message.content, usage, durationMs: Date.now() - started };
     } catch (err) {
       lastErr = err;
-      if (attempt >= MAX_RETRIES || !shouldRetry(err)) break;
+      if (attempt >= maxRetries || !shouldRetry(err)) break;
       await sleep(nextBackoffMs(attempt, err));
     }
   }
