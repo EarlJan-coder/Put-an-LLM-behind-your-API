@@ -1,0 +1,17 @@
+{
+  "name": "put-an-llm-behind-your-api",
+  "version": "1.0.0",
+  "description": "POST /triage - a support message in, clean schema-validated JSON out, powered by a local LLM",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file=.env src/server.js",
+    "test": "node --test",
+    "evals": "node evals/run.js"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "openai": "^7.51.0",
+    "zod": "^4.6.7"
+  }
+}
