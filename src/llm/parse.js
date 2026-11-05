@@ -16,8 +16,11 @@ export function parseModelOutput(raw) {
   let parsed;
   try {
     parsed = JSON.parse(unfenced.slice(start, end + 1));
-  } catch (err) {
-    return { ok: false, error: `model output is not valid JSON: ${err.message}`, raw: text };
+  } catch {
+    // Generic message on purpose: V8's parse errors quote the raw input,
+    // and raw model text must never reach the caller. The full text is kept
+    // in `raw` for the quarantine log.
+    return { ok: false, kind: "parse", error: "model output is not valid JSON", raw: text };
   }
 
   const result = OutputSchema.safeParse(parsed);
@@ -25,7 +28,7 @@ export function parseModelOutput(raw) {
     const detail = result.error.issues
       .map((i) => `${i.path.join(".") || "(body)"}: ${i.message}`)
       .join("; ");
-    return { ok: false, error: `schema validation failed: ${detail}`, raw: text };
+    return { ok: false, kind: "schema", error: `schema validation failed: ${detail}`, raw: text };
   }
 
   return { ok: true, data: result.data };

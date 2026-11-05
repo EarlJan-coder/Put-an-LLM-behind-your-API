@@ -67,7 +67,9 @@ router.post("/triage", async (req, res) => {
     });
     return res.status(422).json({
       error: "model output did not match the schema after one repair attempt",
-      detail: second.error,
+      // Schema diagnostics are safe (Zod messages quote no values - tested);
+      // parse errors stay generic so no raw model text reaches the caller.
+      detail: second.kind === "schema" ? second.error : "model output was not valid JSON",
     });
   } catch (err) {
     const detail = String(err?.message ?? err);

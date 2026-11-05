@@ -12,12 +12,13 @@ export function isTimeout(err) {
 }
 
 export function shouldRetry(err) {
-  if (isTimeout(err)) return true;
+  // Status first: a 400/401/403 must never be retried, even when the error
+  // text happens to mention a timeout. The rule is categorical.
   const status = err?.status;
   if (typeof status === "number") {
     return status === 429 || status >= 500;
   }
-  return false;
+  return isTimeout(err);
 }
 
 // Exponential backoff with jitter: 1s, 2s, 4s, each plus a small random
