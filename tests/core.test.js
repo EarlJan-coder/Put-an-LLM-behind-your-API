@@ -83,3 +83,67 @@ test("POST /triage with an unparseable JSON body returns 400, not a stack trace"
     assert.equal(typeof body.error, "string");
   });
 });
+
+// --- Stage 3: parse, validate, repair ---
+
+import { parseModelOutput } from "../src/llm/parse.js";
+import { buildRepairMessages } from "../src/llm/repair.js";
+
+const GOOD = {
+  category: "bug",
+  urgency: "high",
+  suggested_team: "engineering",
+  confidence: 0.9,
+  reason: "Something is broken.",
+};
+
+test("parseModelOutput parses a plain JSON object", () => {
+  const result = parseModelOutput(JSON.stringify(GOOD));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.data, GOOD);
+});
+
+test("parseModelOutput parses JSON wrapped in a code fence", () => {
+  const result = parseModelOutput("```json\n" + JSON.stringify(GOOD) + "\n```");
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.data, GOOD);
+});
+
+test("parseModelOutput parses JSON preceded by prose", () => {
+  const result = parseModelOutput('Sure! Here is the JSON:\n' + JSON.stringify(GOOD));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.data, GOOD);
+});
+
+test("parseModelOutput rejects garbage", () => {
+  const result = parseModelOutput("I cannot answer that.");
+  assert.equal(result.ok, false);
+  assert.equal(typeof result.error, "string");
+  assert.equal(result.raw, "I cannot answer that.");
+});
+
+test("parseModelOutput rejects a category outside the closed list", () => {
+  const result = parseModelOutput(JSON.stringify({ ...GOOD, category: "banana" }));
+  assert.equal(result.ok, false);
+  assert.match(result.error, /category/);
+});
+
+test("parseModelOutput rejects confidence above 1", () => {
+  const result = parseModelOutput(JSON.stringify({ ...GOOD, confidence: 2 }));
+  assert.equal(result.ok, false);
+  assert.match(result.error, /confidence/);
+});
+
+test("buildRepairMessages contains the exact validation error and the correction instruction", () => {
+  const messages = buildRepairMessages({
+    system: "SYSTEM PROMPT",
+    user: '{"text":"hi"}',
+    broken: "{not json",
+    error: "category: Invalid enum value",
+  });
+  assert.equal(messages[0].role, "system");
+  assert.equal(messages[0].content, "SYSTEM PROMPT");
+  const all = JSON.stringify(messages);
+  assert.match(all, /category: Invalid enum value/);
+  assert.match(all, /Return only corrected JSON matching the schema\./);
+});
