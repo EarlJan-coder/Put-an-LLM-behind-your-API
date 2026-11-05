@@ -25,13 +25,14 @@ export function createClient() {
 }
 
 // Stage 2 shape: returns raw model text. Stage 4 refactors this to return
-// { text, usage, durationMs } with timeout and retries.
-export async function callModel({ system, user }) {
+// { text, usage, durationMs } with timeout and retries. `messages` (used by
+// the repair retry) replaces the built [system, user] pair when present.
+export async function callModel({ system, user, messages }) {
   const client = createClient();
   const res = await client.chat.completions.create({
     model: process.env.LLM_MODEL,
     temperature: 0,
-    messages: [
+    messages: messages ?? [
       { role: "system", content: system },
       { role: "user", content: user },
     ],
