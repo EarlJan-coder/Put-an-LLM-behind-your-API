@@ -70,3 +70,16 @@ test("LLM_STUB=1 returns 200 with a schema-valid body", async () => {
 test("STUB_OUTPUT satisfies OutputSchema", () => {
   assert.equal(OutputSchema.safeParse(STUB_OUTPUT).success, true);
 });
+
+test("POST /triage with an unparseable JSON body returns 400, not a stack trace", async () => {
+  await withServer(async (base) => {
+    const res = await fetch(`${base}/triage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not json",
+    });
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.equal(typeof body.error, "string");
+  });
+});
